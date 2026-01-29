@@ -64,8 +64,9 @@ HTTP, API, and web utilities.
 - Resilience policies (retry, circuit breaker)
 - API response helpers
 - Request/response middleware utilities
+- Application lifecycle management (orchestrator integration)
 
-**Dependencies:** AppCommon.Core, Microsoft.Extensions.Http, Polly
+**Dependencies:** AppCommon.Core, Microsoft.Extensions.Http, Microsoft.Extensions.Hosting.Abstractions, Polly
 
 ## Dependency Strategy
 
@@ -156,6 +157,68 @@ Common Guard methods:
 - Use NSubstitute for mocking
 - Use Shouldly for assertions
 - Aim for high code coverage
+
+## Component Documentation
+
+### AppLifecycleService
+
+`AppCommon.Api.Lifecycle.AppLifecycleService` is a hosted service that enables communication between the application and an external orchestrator (e.g., Fabrica.One) using flag files as a simple IPC mechanism.
+
+#### Flag Files
+
+| Flag | Created By | Meaning |
+|------|------------|---------|
+| `started.flag` | App | Application is fully started and ready |
+| `muststop.flag` | Orchestrator | Request for graceful shutdown |
+| `stopped.flag` | App | Application has fully stopped |
+
+Each flag file contains an ISO 8601 timestamp indicating when it was created.
+
+#### Lifecycle Flow
+
+```
+1. App starts
+   └─> StartAsync() cleans up stale flags from previous runs
+   └─> Registers callbacks on IHostApplicationLifetime
+   └─> Starts FileSystemWatcher for muststop.flag
+
+2. Host signals ApplicationStarted
+   └─> OnStarted() creates started.flag with timestamp
+   └─> Orchestrator sees this and knows app is ready
+
+3. Orchestrator wants graceful shutdown
+   └─> Creates muststop.flag
+   └─> FileSystemWatcher detects it
+   └─> OnMustStopCreated() calls _lifetime.StopApplication()
+
+4. Host shuts down, signals ApplicationStopped
+   └─> OnStopped() creates stopped.flag with timestamp
+   └─> Orchestrator sees this and knows app has exited cleanly
+```
+
+#### Usage
+
+Register the service in your application's DI container:
+
+```csharp
+services.AddSingleton<IHostedService, AppLifecycleService>();
+```
+
+By default, flag files are created in `AppContext.BaseDirectory`. To use a custom directory:
+
+```csharp
+services.AddSingleton<IHostedService>(sp =>
+    new AppLifecycleService(
+        sp.GetRequiredService<IHostApplicationLifetime>(),
+        sp.GetRequiredService<ILogger<AppLifecycleService>>(),
+        "/var/run/myapp"));
+```
+
+#### Why Flag Files?
+
+Simple, cross-platform IPC that works without network ports, named pipes, or complex protocols. The orchestrator just watches/creates files. Works in containers, across process boundaries, and survives app restarts (stale flags get cleaned up on startup).
+
+---
 
 ## Build & Publish
 
