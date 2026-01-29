@@ -57,7 +57,7 @@ Note: This library does not include any database provider packages. Consuming ap
 
 ### AppCommon.Api
 
-HTTP, API, and web utilities.
+HTTP, API, and web utilities for ASP.NET Core applications.
 
 **Provides:**
 - HTTP client factories
@@ -65,8 +65,9 @@ HTTP, API, and web utilities.
 - API response helpers
 - Request/response middleware utilities
 - Application lifecycle management (orchestrator integration)
+- Configuration extensions for orchestrator-managed deployments
 
-**Dependencies:** AppCommon.Core, Microsoft.Extensions.Http, Microsoft.Extensions.Hosting.Abstractions, Polly
+**Dependencies:** AppCommon.Core, Microsoft.AspNetCore.App (FrameworkReference), Polly
 
 ## Dependency Strategy
 
@@ -285,6 +286,50 @@ using (BatchExecutionContext.BeginBatch("import-users"))
 ```
 
 Child commands within the batch context are logged at Debug level instead of Information.
+
+---
+
+### AppConfigurationExtensions
+
+`AppCommon.Api.Configuration.AppConfigurationExtensions` provides a `WebApplicationBuilder` extension for Fabrica.One orchestrator configuration injection.
+
+#### Configuration Loading Order
+
+```
+Priority (lowest → highest):
+1. configuration.json  - App defaults (shipped with the app)
+2. environment.json    - Environment settings (injected by orchestrator)
+3. Environment variables
+4. mission.json        - Deployment-specific context (injected by orchestrator)
+```
+
+Higher priority sources override lower ones for the same keys.
+
+#### Configuration Files
+
+| File | Purpose | Created By |
+|------|---------|------------|
+| `configuration.json` | App defaults, connection string templates | Developer (shipped with app) |
+| `environment.json` | Environment-specific values (dev/staging/prod) | Orchestrator injects |
+| `mission.json` | Deployment context (instance ID, feature flags) | Orchestrator injects |
+
+All files are loaded from `AppContext.BaseDirectory` (where the executable resides).
+
+#### Usage
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+builder.AddFabricaConfiguration();
+```
+
+This clears the default ASP.NET Core configuration sources (appsettings.json, etc.) and replaces them with the Fabrica.One layered approach.
+
+#### Design Decisions
+
+- **No appsettings.json** - Fabrica.One controls configuration externally
+- **BaseDirectory** - Works correctly when orchestrator launches app from different working directories
+- **reloadOnChange: false** - Files are static per deployment; no file watching overhead
+- **Environment variables between file layers** - Allows both file-based and env-based overrides
 
 ---
 
