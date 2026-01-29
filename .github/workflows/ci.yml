@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build and Test
+        run: dotnet run --project build/Build.csproj -- --target=Test
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main')
+
+    permissions:
+      packages: write
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Pack and Push
+        run: |
+          dotnet run --project build/Build.csproj -- --target=Push \
+            --nuget-source="https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --nuget-api-key="${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Commit version bump
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git diff --staged --quiet || git commit -m "Bump version [skip ci]"
+          git push
+
+      - name: Upload Packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: artifacts/*.nupkg
