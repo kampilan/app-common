@@ -17,6 +17,7 @@
     <PackageVersion Include="AWSSDK.SecretsManager" Version="4.0.4.5" />
     <PackageVersion Include="AWSSDK.SimpleSystemsManagement" Version="4.0.6.11" />
     <PackageVersion Include="AWSSDK.DynamoDBv2" Version="4.0.12" />
+    <PackageVersion Include="AWSSDK.SecurityToken" Version="4.0.5" />
     <PackageVersion Include="AWSSDK.SQS" Version="4.0.2.13" />
   </ItemGroup>
 
