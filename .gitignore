@@ -1,0 +1,54 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+artifacts/
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# JetBrains Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# User-specific files
+*.rsuser
+*.user
+*.dbmdl
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+
+# Test Results
+[Tt]est[Rr]esult*/
+TestResults/
+coverage*/
+*.coverage
+*.coveragexml
+
+# Misc
+*.log
+*.tmp
+*.cache
+.DS_Store
+Thumbs.db
+
+# dotnet tool
+.dotnet/
+.config/
+
+# Environment
+*.env
+.env.*

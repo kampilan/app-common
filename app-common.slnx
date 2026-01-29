@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AppCommon.Core/AppCommon.Core.csproj" />
+    <Project Path="src/AppCommon.Aws/AppCommon.Aws.csproj" />
+    <Project Path="src/AppCommon.Persistence/AppCommon.Persistence.csproj" />
+    <Project Path="src/AppCommon.Api/AppCommon.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AppCommon.Core.Tests/AppCommon.Core.Tests.csproj" />
+    <Project Path="tests/AppCommon.Aws.Tests/AppCommon.Aws.Tests.csproj" />
+    <Project Path="tests/AppCommon.Persistence.Tests/AppCommon.Persistence.Tests.csproj" />
+    <Project Path="tests/AppCommon.Api.Tests/AppCommon.Api.Tests.csproj" />
+  </Folder>
+  <Folder Name="/build/">
+    <Project Path="build/Build.csproj" />
+  </Folder>
+</Solution>
