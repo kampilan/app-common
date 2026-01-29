@@ -24,11 +24,11 @@ internal class InstanceMetaService : IInstanceMetadata, IRequiresStart
     public string DefaultRegion { get; init; } = string.Empty;
     public string DefaultUserData { get; init; } = string.Empty;
 
-    private bool _isRunningOnEc2 = true;
+    private volatile bool _isRunningOnEc2 = true;
 
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var tokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var ct = tokenSource.Token;
 
         var metaTask = Task.Run(() =>
@@ -47,13 +47,11 @@ internal class InstanceMetaService : IInstanceMetadata, IRequiresStart
 
         var delayTask = Task.Delay(Timeout, ct);
 
-        var index = Task.WaitAny(metaTask, delayTask);
-        if (index == 1)
+        var completedTask = await Task.WhenAny(metaTask, delayTask);
+        if (completedTask == delayTask)
             _isRunningOnEc2 = false;
 
-        tokenSource.Cancel();
-
-        return Task.CompletedTask;
+        await tokenSource.CancelAsync();
     }
 
     public bool IsRunningOnEc2 => _isRunningOnEc2;

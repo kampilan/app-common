@@ -41,7 +41,8 @@ public class GatewayTokenEncoder : IGatewayTokenEncoder
 
     public async Task<IClaimSet> DecodeAsync(string token)
     {
-        var jsonToken = _tokenHandler.ReadJsonWebToken(token);
+        var jsonToken = _tokenHandler.ReadJsonWebToken(token)
+            ?? throw new SecurityTokenException("Failed to parse token as JWT.");
 
         if (_options.ValidateSignature)
         {

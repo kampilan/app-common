@@ -24,9 +24,11 @@ public class Mediator(IServiceProvider serviceProvider) : IMediator
             requestType,
             static type =>
             {
-                var responseType = type.GetInterfaces()
-                    .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRequest<>))
-                    .GetGenericArguments()[0];
+                var requestInterface = type.GetInterfaces()
+                    .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRequest<>))
+                    ?? throw new InvalidOperationException($"Type {type.Name} does not implement IRequest<TResponse>");
+
+                var responseType = requestInterface.GetGenericArguments()[0];
 
                 var wrapperType = typeof(RequestHandlerWrapper<,>).MakeGenericType(type, responseType);
                 return (RequestHandlerBase)Activator.CreateInstance(wrapperType)!;
