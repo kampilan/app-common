@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using AppCommon.Core.Lifecycle;
+using AppCommon.Core.Identity;
 using Microsoft.Extensions.Logging;
 
 namespace AppCommon.Core.Mediator.Behaviors;

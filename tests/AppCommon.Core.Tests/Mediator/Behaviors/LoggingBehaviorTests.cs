@@ -1,4 +1,4 @@
-using AppCommon.Core.Lifecycle;
+using AppCommon.Core.Identity;
 using AppCommon.Core.Mediator;
 using AppCommon.Core.Mediator.Behaviors;
 using Microsoft.Extensions.Logging;
