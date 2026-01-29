@@ -66,6 +66,7 @@ HTTP, API, and web utilities for ASP.NET Core applications.
 - Request/response middleware utilities
 - Application lifecycle management (orchestrator integration)
 - Configuration extensions for orchestrator-managed deployments
+- Endpoint module registration for minimal APIs
 
 **Dependencies:** AppCommon.Core, Microsoft.AspNetCore.App (FrameworkReference), Polly
 
@@ -390,6 +391,77 @@ services.AddSingleton<IHostedService>(sp =>
 #### Why Flag Files?
 
 Simple, cross-platform IPC that works without network ports, named pipes, or complex protocols. The orchestrator just watches/creates files. Works in containers, across process boundaries, and survives app restarts (stale flags get cleaned up on startup).
+
+---
+
+### EndpointModule
+
+`AppCommon.Api.Endpoints` provides a modular endpoint registration pattern for ASP.NET Core minimal APIs, enabling feature-based endpoint organization with auto-discovery.
+
+#### Core Concepts
+
+| Interface/Class | Purpose |
+|-----------------|---------|
+| `IEndpointModule` | Interface for endpoint feature classes to implement |
+| `EndpointModuleExtensions` | Extension methods for auto-discovering and registering modules |
+
+#### Usage
+
+**1. Define an endpoint module:**
+
+```csharp
+public class UsersEndpoint : IEndpointModule
+{
+    public void AddRoutes(IEndpointRouteBuilder app)
+    {
+        app.MapGet("/users", GetAllUsers);
+        app.MapGet("/users/{id}", GetUser);
+        app.MapPost("/users", CreateUser);
+    }
+
+    private static async Task<IResult> GetAllUsers(IMediator mediator)
+    {
+        var users = await mediator.SendAsync(new GetUsersQuery());
+        return Results.Ok(users);
+    }
+
+    // ... other handlers
+}
+```
+
+**2. Register all endpoint modules in Program.cs:**
+
+```csharp
+var app = builder.Build();
+
+// Maps all IEndpointModule implementations under /api prefix
+app.MapEndpointModules(typeof(Program).Assembly);
+
+// Routes become: /api/users, /api/users/{id}, etc.
+```
+
+**3. Multiple assemblies and custom prefix:**
+
+```csharp
+// Scan multiple assemblies
+app.MapEndpointModules(
+    [typeof(Program).Assembly, typeof(SharedEndpoints).Assembly],
+    prefix: "/v1");
+```
+
+#### Benefits
+
+- **Feature-based organization** - Colocate endpoint definitions with their handlers
+- **Auto-discovery** - No manual registration required for each endpoint class
+- **Consistent routing** - All routes automatically prefixed (default: `/api`)
+- **Testable** - Endpoint modules can be unit tested in isolation
+
+#### How It Works
+
+1. `MapEndpointModules` scans the specified assemblies for concrete classes implementing `IEndpointModule`
+2. Creates a route group with the specified prefix (default `/api`)
+3. Instantiates each module and calls `AddRoutes`, passing the scoped route builder
+4. Abstract classes and interfaces are automatically ignored
 
 ---
 

@@ -20,4 +20,8 @@
     <PackageReference Include="Polly.Extensions" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Endpoints\" />
+  </ItemGroup>
+
 </Project>
