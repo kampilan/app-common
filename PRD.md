@@ -25,8 +25,9 @@ Base utilities and extensions with minimal dependencies.
 - Common abstractions and interfaces
 - Mediator pattern implementation
 - Logging utilities
+- Base entity types and audit infrastructure (IEntity, IRootEntity, IAggregateChild, AuditJournal, AuditJournalExtensions)
 
-**Dependencies:** CommunityToolkit.Diagnostics, FluentValidation, Microsoft.Extensions.* abstractions
+**Dependencies:** CommunityToolkit.Diagnostics, FluentValidation, Microsoft.Extensions.* abstractions, Ulid
 
 ### AppCommon.Aws
 
@@ -50,10 +51,11 @@ Provider-agnostic database and data access patterns.
 - Unit of Work pattern
 - EF Core utilities and extensions
 - Connection management
+- Automatic audit logging via EF Core interceptor
 
-**Dependencies:** AppCommon.Core, Entity Framework Core (provider-agnostic)
+**Dependencies:** AppCommon.Core, Entity Framework Core (provider-agnostic), Ulid
 
-Note: This library does not include any database provider packages. Consuming applications should add their own provider (e.g., Npgsql.EntityFrameworkCore.PostgreSQL, Microsoft.EntityFrameworkCore.SqlServer).
+Note: This library does not include any database provider packages. Consuming applications should add their own provider (e.g., Npgsql.EntityFrameworkCore.PostgreSQL, Microsoft.EntityFrameworkCore.SqlServer, Pomelo.EntityFrameworkCore.MySql).
 
 ### AppCommon.Api
 
@@ -635,6 +637,205 @@ In development environment, `GlobalExceptionHandler` includes additional debuggi
 - `innerException`: Inner exception details if present
 
 In production, these details are hidden to prevent information leakage.
+
+---
+
+### AuditSaveChangesInterceptor
+
+`AppCommon.Persistence.Interceptors.AuditSaveChangesInterceptor` is an EF Core interceptor that automatically creates audit trail entries when entities are saved.
+
+#### Core Types (AppCommon.Core.Persistence)
+
+| Type | Purpose |
+|------|---------|
+| `IEntity` | Base interface with `GetUid()` for all domain entities |
+| `IRootEntity` | Marker interface for aggregate root entities |
+| `IAggregateChild` | Interface for entities belonging to an aggregate with `GetRoot()` |
+| `BaseEntity<T>` | Abstract base class with identity-based equality |
+| `AuditAttribute` | Marks entities for audit logging |
+| `AuditJournal` | Audit log entry entity |
+| `AuditJournalType` | Enum: Created, Updated, Deleted, Detail, UnmodifiedRoot |
+
+#### Audit Journal Hierarchy
+
+The flat `AuditJournal` table encodes a 3-level logical hierarchy:
+
+```
+When + Who (CorrelationUid + OccurredAt + Subject + UserName)
+└── What Entity (EntityType + EntityUid + EntityDescription + TypeCode)
+    └── What Property (PropertyName + PreviousValue + CurrentValue)
+```
+
+| Level | Fields | Description |
+|-------|--------|-------------|
+| Transaction | `CorrelationUid`, `OccurredAt`, `Subject`, `UserName` | A single user action at a point in time |
+| Entity | `EntityType`, `EntityUid`, `EntityDescription`, `TypeCode` | What entities were affected |
+| Property | `PropertyName`, `PreviousValue`, `CurrentValue` | What properties changed (Detail entries) |
+
+#### How It Works
+
+1. Intercepts `SaveChanges`/`SaveChangesAsync` before changes are persisted
+2. Scans `ChangeTracker` for entities marked with `[Audit]` attribute
+3. Creates audit entries based on entity state:
+   - `Added` → `AuditJournalType.Created` + Detail entries
+   - `Modified` → `AuditJournalType.Updated` + Detail entries for changed properties
+   - `Deleted` → `AuditJournalType.Deleted`
+4. For `IAggregateChild` modifications where the root wasn't directly changed, creates `UnmodifiedRoot` entry to link changes to the aggregate root
+5. All entries share the same `CorrelationUid` (from `Activity.Current?.TraceId` or new ULID)
+6. User context captured from `ICurrentUserService`
+
+#### Usage
+
+**1. Mark entities for auditing:**
+
+```csharp
+[Audit]
+public class Customer : BaseEntity<Customer>, IRootEntity
+{
+    public string Uid { get; set; } = Ulid.NewUlid().ToString();
+    public string Name { get; set; }
+
+    public override string GetUid() => Uid;
+}
+
+[Audit]
+public class Order : BaseEntity<Order>, IAggregateChild
+{
+    public string Uid { get; set; } = Ulid.NewUlid().ToString();
+    public Customer Customer { get; set; }
+
+    public override string GetUid() => Uid;
+    public IRootEntity? GetRoot() => Customer;
+}
+```
+
+**2. Configure the interceptor:**
+
+```csharp
+services.AddScoped<ICurrentUserService, CurrentUserService>();
+services.AddScoped<AuditSaveChangesInterceptor>();
+
+services.AddDbContext<AppDbContext>((sp, options) =>
+{
+    options.UseMySql(connectionString, serverVersion)
+           .AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>());
+});
+```
+
+**3. Include AuditJournal in your DbContext:**
+
+```csharp
+public class AppDbContext : DbContext
+{
+    public DbSet<AuditJournal> AuditJournals => Set<AuditJournal>();
+}
+```
+
+#### Audit Attribute Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `Write` | `true` | Whether to create audit entries for this entity |
+| `Detailed` | `true` | Whether to track property-level changes |
+| `EntityName` | `null` | Custom name for audit log (defaults to full type name) |
+
+#### Query Patterns
+
+```csharp
+// What changed in request X?
+var changes = await db.AuditJournals
+    .Where(a => a.CorrelationUid == correlationUid)
+    .ToListAsync();
+
+// History of entity Y?
+var history = await db.AuditJournals
+    .Where(a => a.EntityUid == entityUid)
+    .OrderByDescending(a => a.OccurredAt)
+    .ToListAsync();
+
+// All changes by user Z?
+var userChanges = await db.AuditJournals
+    .Where(a => a.Subject == userId)
+    .ToListAsync();
+```
+
+---
+
+### AuditJournalExtensions
+
+`AppCommon.Core.Persistence.AuditJournalExtensions` provides extension methods to transform flat `AuditJournal` entries into a hierarchical structure for display.
+
+#### Hierarchy DTOs
+
+| Type | Level | Properties |
+|------|-------|------------|
+| `AuditTransactionGroup` | Top (When + Who) | `CorrelationUid`, `Subject`, `UserName`, `OccurredAt`, `Entities` |
+| `AuditEntityGroup` | Middle (What) | `TypeCode`, `EntityType`, `EntityUid`, `EntityDescription`, `Properties` |
+| `AuditPropertyChange` | Bottom (Detail) | `PropertyName`, `PreviousValue`, `CurrentValue` |
+
+#### Extension Methods
+
+**`ToHierarchy()`** - Transforms flat entries into hierarchical structure:
+
+```csharp
+var flatEntries = await db.AuditJournals
+    .Where(a => a.EntityUid == clientUid)
+    .ToListAsync();
+
+List<AuditTransactionGroup> hierarchy = flatEntries.ToHierarchy();
+// Returns transactions ordered by OccurredAt descending
+```
+
+**`ToHierarchyForEntity(entityUid)`** - Filters to transactions containing a specific entity:
+
+```csharp
+var allEntries = await db.AuditJournals.ToListAsync();
+
+// Find all transactions where this entity was involved
+List<AuditTransactionGroup> entityHistory = allEntries.ToHierarchyForEntity(clientUid);
+```
+
+#### How It Works
+
+1. Groups entries by `CorrelationUid` (one group per transaction)
+2. For each transaction, extracts entity-level entries (Created, Updated, Deleted)
+3. For each entity, attaches matching Detail entries as property changes
+4. Orders transactions by `OccurredAt` descending (newest first)
+
+#### UnmodifiedRoot Handling
+
+`UnmodifiedRoot` entries are used for **querying** but **excluded from output**:
+
+- **Querying**: `ToHierarchyForEntity()` finds transactions where an entity appears as `UnmodifiedRoot` (e.g., when a child entity changed but the root didn't)
+- **Output**: `UnmodifiedRoot` entries are filtered out of the hierarchy since they don't represent actual changes
+
+This allows you to find "all changes affecting Customer X" including changes to child Orders, without displaying a redundant "Customer unchanged" entry.
+
+#### Example Output
+
+```csharp
+// Single transaction with one updated entity and two property changes
+[
+  {
+    CorrelationUid: "corr-123",
+    Subject: "user-456",
+    UserName: "John Doe",
+    OccurredAt: "2025-01-29T10:30:00Z",
+    Entities: [
+      {
+        TypeCode: "Updated",
+        EntityType: "Customer",
+        EntityUid: "cust-789",
+        EntityDescription: "Customer: Acme Corp",
+        Properties: [
+          { PropertyName: "Name", PreviousValue: "Acme", CurrentValue: "Acme Corp" },
+          { PropertyName: "Email", PreviousValue: "old@acme.com", CurrentValue: "new@acme.com" }
+        ]
+      }
+    ]
+  }
+]
+```
 
 ---
 
