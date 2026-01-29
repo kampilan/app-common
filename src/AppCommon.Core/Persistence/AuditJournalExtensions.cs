@@ -23,6 +23,7 @@ public static class AuditJournalExtensions
             .GroupBy(aj => aj.CorrelationUid)
             .Select(corrGroup =>
             {
+                // Groups from GroupBy always have at least one element
                 var first = corrGroup.First();
 
                 var entityGroups = corrGroup

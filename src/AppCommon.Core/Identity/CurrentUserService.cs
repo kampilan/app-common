@@ -2,22 +2,32 @@ namespace AppCommon.Core.Identity;
 
 public class CurrentUserService : ICurrentUserService
 {
-    private string? _userId;
-    private string? _userName;
-    private string? _email;
-    private List<string> _roles = [];
+    /// <summary>
+    /// Immutable snapshot of user data. Reference assignment is atomic,
+    /// ensuring readers always see consistent state.
+    /// </summary>
+    private sealed record UserSnapshot(
+        string? UserId,
+        string? UserName,
+        string? Email,
+        IReadOnlyList<string> Roles);
 
-    public string? UserId => _userId;
-    public string? UserName => _userName;
-    public string? Email => _email;
-    public IReadOnlyList<string> Roles => _roles;
-    public bool IsAuthenticated => !string.IsNullOrEmpty(_userId);
+    private static readonly UserSnapshot Empty = new(null, null, null, []);
+
+    private volatile UserSnapshot _current = Empty;
+
+    public string? UserId => _current.UserId;
+    public string? UserName => _current.UserName;
+    public string? Email => _current.Email;
+    public IReadOnlyList<string> Roles => _current.Roles;
+    public bool IsAuthenticated => !string.IsNullOrEmpty(_current.UserId);
 
     public void SetUser(string? userId, string? userName, string? email, IEnumerable<string>? roles)
     {
-        _userId = userId;
-        _userName = userName;
-        _email = email;
-        _roles = roles?.ToList() ?? [];
+        _current = new UserSnapshot(
+            userId,
+            userName,
+            email,
+            roles?.ToList() ?? []);
     }
 }

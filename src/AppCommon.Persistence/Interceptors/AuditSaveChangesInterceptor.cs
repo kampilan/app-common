@@ -98,7 +98,7 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
                 }
             }
 
-            var entityType = auditAttribute.EntityName ?? entry.Entity.GetType().FullName ?? entry.Entity.GetType().Name;
+            var entityType = auditAttribute.EntityName ?? entry.Entity.GetType().FullName!;
             var entityDescription = entry.Entity.ToString() ?? string.Empty;
             if (entityDescription.Length > 500)
                 entityDescription = entityDescription[..500];
@@ -146,7 +146,7 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
                 continue;
 
             var rootAuditAttribute = root.GetType().GetCustomAttribute<AuditAttribute>(true);
-            var rootEntityType = rootAuditAttribute?.EntityName ?? root.GetType().FullName ?? root.GetType().Name;
+            var rootEntityType = rootAuditAttribute?.EntityName ?? root.GetType().FullName!;
             var rootDescription = root.ToString() ?? string.Empty;
             if (rootDescription.Length > 500)
                 rootDescription = rootDescription[..500];

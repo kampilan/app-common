@@ -10,9 +10,19 @@ public abstract class BaseEntity<TImp> : IEntity where TImp : BaseEntity<TImp>
     public abstract string GetUid();
 
 
+    /// <summary>
+    /// Gets the actual entity type, unwrapping EF Core lazy-loading proxies if present.
+    /// </summary>
     private Type GetUnproxiedType()
     {
-        return GetType();
+        var type = GetType();
+
+        // EF Core proxies inherit from the entity type, so the base type is the real entity
+        // Proxy type names contain "Proxy" or "Castle" (Castle.Proxies namespace)
+        if (type.Namespace?.Contains("Proxies") == true || type.Name.Contains("Proxy"))
+            return type.BaseType ?? type;
+
+        return type;
     }
 
 

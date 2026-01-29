@@ -53,8 +53,15 @@ public class GatewayTokenEncoder : IGatewayTokenEncoder
                 throw new SecurityTokenException("Token validation failed.", result.Exception);
             }
         }
-        else if (_options.ValidateExpiration && jsonToken.ValidTo != DateTime.MinValue)
+        else if (_options.ValidateExpiration)
         {
+            // Tokens without an expiration claim (ValidTo == MinValue) are rejected
+            // when expiration validation is enabled
+            if (jsonToken.ValidTo == DateTime.MinValue)
+            {
+                throw new SecurityTokenException("Token does not contain an expiration claim.");
+            }
+
             var expiration = jsonToken.ValidTo.Add(_options.ClockSkew);
             if (expiration < DateTime.UtcNow)
             {

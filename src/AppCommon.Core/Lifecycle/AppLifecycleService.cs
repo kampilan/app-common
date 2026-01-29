@@ -74,6 +74,9 @@ public class AppLifecycleService : IHostedService, IDisposable
 
     private void StartWatching()
     {
+        // Dispose existing watcher if StartWatching called multiple times
+        _watcher?.Dispose();
+
         _watcher = new FileSystemWatcher(_flagDirectory, MustStopFlag)
         {
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.CreationTime

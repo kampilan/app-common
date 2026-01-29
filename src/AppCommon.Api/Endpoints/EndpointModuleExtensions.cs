@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AppCommon.Api.Endpoints;
 
@@ -21,6 +22,7 @@ public static class EndpointModuleExtensions
     /// <summary>
     /// Maps all IEndpointModule implementations from the specified assemblies.
     /// Routes are automatically prefixed with /api.
+    /// Modules can have constructor dependencies resolved from DI.
     /// </summary>
     public static IEndpointRouteBuilder MapEndpointModules(
         this IEndpointRouteBuilder app,
@@ -37,7 +39,7 @@ public static class EndpointModuleExtensions
 
         foreach (var type in moduleTypes)
         {
-            var module = (IEndpointModule)Activator.CreateInstance(type)!;
+            var module = (IEndpointModule)ActivatorUtilities.CreateInstance(app.ServiceProvider, type);
             module.AddRoutes(group);
         }
 

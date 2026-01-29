@@ -16,6 +16,15 @@ public interface IInstanceMetadata
 }
 
 
+/// <summary>
+/// Detects EC2 environment and provides instance metadata.
+/// Falls back to default values when not running on EC2.
+/// </summary>
+/// <remarks>
+/// Detection uses a timeout to avoid blocking on non-EC2 environments where the
+/// metadata endpoint is unreachable. Any failure (timeout, exception, empty response)
+/// indicates non-EC2 environment - this is by design, not an error condition.
+/// </remarks>
 internal class InstanceMetaService : IInstanceMetadata, IRequiresStart
 {
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(1);
@@ -41,6 +50,7 @@ internal class InstanceMetaService : IInstanceMetadata, IRequiresStart
             }
             catch
             {
+                // Any exception means we're not on EC2 - this is expected behavior
                 _isRunningOnEc2 = false;
             }
         }, ct);

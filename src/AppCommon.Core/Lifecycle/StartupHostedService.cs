@@ -7,6 +7,10 @@ namespace AppCommon.Core.Lifecycle;
 /// Hosted service that discovers and starts all <see cref="IRequiresStart"/> implementations
 /// during application startup.
 /// </summary>
+/// <remarks>
+/// Fail-fast by design: if any startup service fails, the application will not start.
+/// This ensures the app never runs in a degraded state with missing dependencies.
+/// </remarks>
 public class StartupHostedService : IHostedService
 {
     private readonly IEnumerable<IRequiresStart> _startables;
