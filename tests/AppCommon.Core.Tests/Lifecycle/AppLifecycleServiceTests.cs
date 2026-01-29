@@ -1,11 +1,11 @@
-using AppCommon.Api.Lifecycle;
+using AppCommon.Core.Lifecycle;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using Shouldly;
 using Xunit;
 
-namespace AppCommon.Api.Tests.Lifecycle;
+namespace AppCommon.Core.Tests.Lifecycle;
 
 public class AppLifecycleServiceTests : IDisposable
 {

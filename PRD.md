@@ -340,7 +340,7 @@ This clears the default ASP.NET Core configuration sources (appsettings.json, et
 
 ### AppLifecycleService
 
-`AppCommon.Api.Lifecycle.AppLifecycleService` is a hosted service that enables communication between the application and an external orchestrator (e.g., Fabrica.One) using flag files as a simple IPC mechanism.
+`AppCommon.Core.Lifecycle.AppLifecycleService` is a hosted service that enables communication between the application and an external orchestrator (e.g., Fabrica.One) using flag files as a simple IPC mechanism.
 
 #### Flag Files
 

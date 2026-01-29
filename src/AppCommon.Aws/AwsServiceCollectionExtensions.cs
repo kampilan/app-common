@@ -6,6 +6,7 @@ using Amazon.Runtime.CredentialManagement;
 using Amazon.S3;
 using Amazon.SecurityToken;
 using Amazon.SQS;
+using AppCommon.Core.Lifecycle;
 using CommunityToolkit.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -29,18 +30,18 @@ public static class AwsServiceCollectionExtensions
         var options = new AwsOptions();
         configure?.Invoke(options);
 
-        services.AddSingleton<IInstanceMetadata>(_ =>
+        // Register InstanceMetaService as singleton with IRequiresStart for auto-startup
+        var metaService = new InstanceMetaService
         {
-            var service = new InstanceMetaService
-            {
-                DefaultInstanceId = options.DefaultInstanceId,
-                DefaultRegion = options.DefaultRegion,
-                DefaultUserData = options.DefaultUserData,
-                Timeout = options.MetadataTimeout
-            };
+            DefaultInstanceId = options.DefaultInstanceId,
+            DefaultRegion = options.DefaultRegion,
+            DefaultUserData = options.DefaultUserData,
+            Timeout = options.MetadataTimeout
+        };
 
-            return service;
-        });
+        services.AddSingleton(metaService);
+        services.AddSingleton<IInstanceMetadata>(sp => sp.GetRequiredService<InstanceMetaService>());
+        services.AddSingleton<IRequiresStart>(sp => sp.GetRequiredService<InstanceMetaService>());
 
         if (!string.IsNullOrWhiteSpace(options.ProfileName))
         {

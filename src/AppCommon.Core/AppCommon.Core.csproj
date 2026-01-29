@@ -12,12 +12,9 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Ulid" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Lifecycle\" />
-    <Folder Include="Persistence\" />
-  </ItemGroup>
 
 </Project>

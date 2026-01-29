@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace AppCommon.Api.Lifecycle;
+namespace AppCommon.Core.Lifecycle;
 
 /// <summary>
 /// Hosted service for Fabrica.One lifecycle management using flag files.
