@@ -67,8 +67,10 @@ HTTP, API, and web utilities for ASP.NET Core applications.
 - Application lifecycle management (orchestrator integration)
 - Configuration extensions for orchestrator-managed deployments
 - Endpoint module registration for minimal APIs
+- Gateway token authentication for proxy/gateway architectures
+- RFC 7807 Problem Details exception handlers
 
-**Dependencies:** AppCommon.Core, Microsoft.AspNetCore.App (FrameworkReference), Polly
+**Dependencies:** AppCommon.Core, Microsoft.AspNetCore.App (FrameworkReference), Polly, Microsoft.IdentityModel.JsonWebTokens
 
 ## Dependency Strategy
 
@@ -462,6 +464,177 @@ app.MapEndpointModules(
 2. Creates a route group with the specified prefix (default `/api`)
 3. Instantiates each module and calls `AddRoutes`, passing the scoped route builder
 4. Abstract classes and interfaces are automatically ignored
+
+---
+
+### GatewayTokenAuthentication
+
+`AppCommon.Api.Identity` provides JWT-based authentication for applications running behind a gateway/proxy that handles initial authentication and forwards user claims via a header token.
+
+#### Core Components
+
+| Type | Purpose |
+|------|---------|
+| `IClaimSet` | Interface representing decoded token claims |
+| `ClaimSetModel` | Default implementation of IClaimSet |
+| `IGatewayTokenEncoder` | Interface for decoding JWT tokens |
+| `GatewayTokenEncoder` | JWT decoder with configurable validation |
+| `GatewayTokenOptions` | Configuration options for authentication |
+| `GatewayIdentity` | ClaimsIdentity populated from gateway token |
+| `GatewayTokenAuthenticationHandler` | ASP.NET Core authentication handler |
+| `GatewayAuthenticationExtensions` | DI registration extension methods |
+
+#### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `HeaderName` | `X-Gateway-Token` | Header containing the JWT token |
+| `ValidateSignature` | `false` | Whether to validate JWT signature |
+| `SigningKey` | `null` | HMAC key for signature validation |
+| `ValidateExpiration` | `true` | Whether to check token expiration |
+| `ClockSkew` | 5 minutes | Tolerance for expiration checks |
+| `DevelopmentToken` | `null` | Fallback token for local development |
+
+#### Usage
+
+**Basic setup (behind trusted proxy):**
+
+```csharp
+// Program.cs
+builder.Services.AddGatewayTokenAuthentication();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+```
+
+**With signature validation:**
+
+```csharp
+builder.Services.AddGatewayTokenAuthentication(options =>
+{
+    options.ValidateSignature = true;
+    options.SigningKey = builder.Configuration["Auth:SigningKey"];
+});
+```
+
+**Development fallback token:**
+
+```csharp
+builder.Services.AddGatewayTokenAuthentication(options =>
+{
+    if (builder.Environment.IsDevelopment())
+    {
+        options.DevelopmentToken = "eyJ..."; // Pre-generated dev token
+    }
+});
+```
+
+**Adding to existing authentication:**
+
+```csharp
+builder.Services
+    .AddAuthentication()
+    .AddGatewayToken()
+    .AddJwtBearer(); // Other schemes
+```
+
+#### How It Works
+
+1. Request arrives with `X-Gateway-Token` header (or configured header name)
+2. Handler extracts and decodes the JWT token
+3. If `ValidateSignature` is true, signature is verified
+4. If `ValidateExpiration` is true, expiration is checked (with clock skew)
+5. Claims are extracted and `ICurrentUserService` is populated
+6. `ClaimsPrincipal` is created with standard claim types (NameIdentifier, Name, Email, Role)
+
+#### Token Format
+
+The handler expects standard JWT claims:
+
+```json
+{
+  "sub": "user-123",
+  "name": "John Doe",
+  "email": "john@example.com",
+  "roles": ["admin", "user"],
+  "exp": 1234567890
+}
+```
+
+#### When to Use
+
+- Applications behind an API gateway that handles OAuth/OIDC
+- Microservices receiving pre-validated tokens from a gateway
+- Local development that needs to simulate gateway behavior
+
+---
+
+### Exception Handlers
+
+`AppCommon.Api.Middleware` provides RFC 7807 Problem Details-compliant exception handlers for ASP.NET Core applications.
+
+#### Components
+
+| Handler | Purpose |
+|---------|---------|
+| `ValidationExceptionHandler` | Handles FluentValidation exceptions with grouped errors |
+| `GlobalExceptionHandler` | Catches all unhandled exceptions as a fallback |
+
+#### Exception to Status Code Mapping
+
+| Exception Type | Status Code | Description |
+|----------------|-------------|-------------|
+| `ValidationException` | 400 | Validation errors with field-level details |
+| `KeyNotFoundException` | 404 | Resource not found |
+| `FileNotFoundException` | 404 | Resource not found |
+| `UnauthorizedAccessException` | 401 | Authentication required |
+| `InvalidOperationException` | 400 | Bad request |
+| `ArgumentException` | 400 | Bad request |
+| `OperationCanceledException` | 499 | Client closed request |
+| `TimeoutException` | 504 | Gateway timeout |
+| Other exceptions | 500 | Internal server error |
+
+#### Usage
+
+```csharp
+// Program.cs
+builder.Services.AddProblemDetails();
+
+// Register handlers in order (specific first, global last)
+builder.Services.AddExceptionHandler<ValidationExceptionHandler>();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+
+var app = builder.Build();
+app.UseExceptionHandler();
+```
+
+#### Response Format
+
+All exceptions return RFC 7807 Problem Details:
+
+```json
+{
+  "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+  "title": "One or more validation errors occurred.",
+  "status": 400,
+  "detail": "See the errors property for details.",
+  "traceId": "00-abc123...",
+  "errors": {
+    "Name": ["Name is required", "Name must be at least 3 characters"],
+    "Email": ["Email is invalid"]
+  }
+}
+```
+
+#### Development Mode
+
+In development environment, `GlobalExceptionHandler` includes additional debugging information:
+- `exceptionType`: Full type name of the exception
+- `stackTrace`: Stack trace (excluded for 404s and cancellations)
+- `innerException`: Inner exception details if present
+
+In production, these details are hidden to prevent information leakage.
 
 ---
 
