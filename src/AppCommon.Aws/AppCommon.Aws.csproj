@@ -3,8 +3,13 @@
   <PropertyGroup>
     <PackageId>AppCommon.Aws</PackageId>
     <Description>AWS SDK integrations and service utilities for Claude-built applications</Description>
-    <PackageTags>aws;cloud;s3;dynamodb;sqs</PackageTags>
+    <PackageTags>aws;cloud;s3;dynamodb;sqs;ec2;metadata</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AppCommon.Core\AppCommon.Core.csproj" />

@@ -3,8 +3,13 @@
   <PropertyGroup>
     <PackageId>AppCommon.Core</PackageId>
     <Description>Base utilities, extensions, and common patterns for Claude-built applications</Description>
-    <PackageTags>utilities;extensions;common</PackageTags>
+    <PackageTags>utilities;extensions;common;mediator;cqrs;audit</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Diagnostics" />

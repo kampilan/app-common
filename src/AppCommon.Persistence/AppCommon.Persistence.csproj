@@ -3,8 +3,13 @@
   <PropertyGroup>
     <PackageId>AppCommon.Persistence</PackageId>
     <Description>Database and data access patterns for Claude-built applications</Description>
-    <PackageTags>database;efcore;persistence;repository</PackageTags>
+    <PackageTags>database;efcore;persistence;repository;audit;interceptor</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AppCommon.Core\AppCommon.Core.csproj" />

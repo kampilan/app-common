@@ -13,6 +13,21 @@
     <Company>Anthropic</Company>
     <Copyright>Copyright © Anthropic $([System.DateTime]::Now.Year)</Copyright>
     <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/kampilan/app-common</RepositoryUrl>
+  </PropertyGroup>
+
+  <!-- XML Documentation for AI and IntelliSense -->
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn> <!-- Don't require docs on everything -->
+  </PropertyGroup>
+
+  <!-- Source Link for debugging into source -->
+  <PropertyGroup>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">

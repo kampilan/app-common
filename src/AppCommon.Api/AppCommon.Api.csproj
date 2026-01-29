@@ -3,8 +3,13 @@
   <PropertyGroup>
     <PackageId>AppCommon.Api</PackageId>
     <Description>HTTP, API, and resilience utilities for Claude-built applications</Description>
-    <PackageTags>http;api;polly;resilience</PackageTags>
+    <PackageTags>http;api;polly;resilience;endpoints;jwt;authentication</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
