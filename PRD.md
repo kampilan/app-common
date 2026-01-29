@@ -18,29 +18,26 @@ AppCommon is a modular class library ecosystem designed for code reuse across Cl
 Base utilities and extensions with minimal dependencies.
 
 **Provides:**
-- String extensions
-- Collection extensions
 - Guard clauses via CommunityToolkit.Diagnostics
 - FluentValidation integration
-- Common abstractions and interfaces
-- Mediator pattern implementation
-- Logging utilities
+- Mediator pattern implementation (IMediator, ICommand, IQuery, pipeline behaviors)
+- Lifecycle management (IRequiresStart, StartupHostedService, AppLifecycleService)
 - Base entity types and audit infrastructure (IEntity, IRootEntity, IAggregateChild, AuditJournal, AuditJournalExtensions)
+- Current user service abstraction (ICurrentUserService)
 
-**Dependencies:** CommunityToolkit.Diagnostics, FluentValidation, Microsoft.Extensions.* abstractions, Ulid
+**Dependencies:** CommunityToolkit.Diagnostics, FluentValidation, Microsoft.Extensions.* abstractions, Microsoft.Extensions.Hosting.Abstractions, Ulid
 
 ### AppCommon.Aws
 
-AWS SDK integrations and service utilities.
+AWS SDK integrations and DI extensions for Microsoft.Extensions.DependencyInjection.
 
 **Provides:**
-- S3 client wrappers
-- Secrets Manager helpers
-- Parameter Store utilities
-- DynamoDB helpers
-- SQS utilities
+- DI registration extensions for AWS clients (S3, SQS, STS, DynamoDB)
+- EC2 instance metadata service with timeout and fallback defaults
+- AWS credential support (local profiles, instance roles)
+- Auto-start integration via IRequiresStart
 
-**Dependencies:** AppCommon.Core, AWSSDK packages
+**Dependencies:** AppCommon.Core, AWSSDK.* packages, Microsoft.Extensions.DependencyInjection.Abstractions
 
 ### AppCommon.Persistence
 
@@ -395,6 +392,123 @@ services.AddSingleton<IHostedService>(sp =>
 #### Why Flag Files?
 
 Simple, cross-platform IPC that works without network ports, named pipes, or complex protocols. The orchestrator just watches/creates files. Works in containers, across process boundaries, and survives app restarts (stale flags get cleaned up on startup).
+
+---
+
+### StartupHostedService (IRequiresStart)
+
+`AppCommon.Core.Lifecycle` provides a pattern for services that require initialization at application startup.
+
+#### Core Types
+
+| Type | Purpose |
+|------|---------|
+| `IRequiresStart` | Interface for services needing initialization |
+| `StartupHostedService` | Hosted service that discovers and starts all `IRequiresStart` implementations |
+| `StartupServiceExtensions` | DI registration helpers |
+
+#### How It Works
+
+1. Services implement `IRequiresStart` with a `StartAsync(CancellationToken)` method
+2. Register `StartupHostedService` via `AddStartupServices()`
+3. On app startup, all `IRequiresStart` services are discovered and initialized in sequence
+
+#### Usage
+
+**1. Implement IRequiresStart:**
+
+```csharp
+public class MyService : IMyService, IRequiresStart
+{
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        // Initialization logic (connect to external service, warm cache, etc.)
+    }
+}
+```
+
+**2. Register services:**
+
+```csharp
+// Register the startup hosted service
+services.AddStartupServices();
+
+// Register your service as both its interface and IRequiresStart
+services.AddSingleton<MyService>();
+services.AddSingleton<IMyService>(sp => sp.GetRequiredService<MyService>());
+services.AddSingleton<IRequiresStart>(sp => sp.GetRequiredService<MyService>());
+
+// Or use the helper method
+services.AddStartable<IMyService, MyService>();
+```
+
+#### Built-in IRequiresStart Implementations
+
+- `InstanceMetaService` (AppCommon.Aws) - Detects EC2 environment with timeout
+
+#### When to Use
+
+- Services that need to connect to external resources at startup
+- Warm-up tasks that should complete before the app accepts requests
+- Environment detection that may timeout (like EC2 metadata)
+
+---
+
+### AwsServiceCollectionExtensions
+
+`AppCommon.Aws` provides DI registration extensions for AWS service clients.
+
+#### Extension Methods
+
+| Method | Registers |
+|--------|-----------|
+| `AddAws()` | Core AWS setup + `IInstanceMetadata` |
+| `AddS3Client()` | `IAmazonS3` |
+| `AddSqsClient()` | `IAmazonSQS` |
+| `AddStsClient()` | `IAmazonSecurityTokenService` |
+| `AddDynamoDbClient()` | `IAmazonDynamoDB` + `IDynamoDBContext` |
+
+#### Usage
+
+```csharp
+services.AddStartupServices(); // Required for IInstanceMetadata auto-start
+services.AddAws(options =>
+{
+    options.ProfileName = "dev";           // Optional: local AWS profile
+    options.DefaultRegion = "us-west-2";   // Fallback when not on EC2
+    options.DefaultInstanceId = "local";   // Fallback when not on EC2
+    options.MetadataTimeout = TimeSpan.FromSeconds(1);
+});
+
+services.AddS3Client("us-west-2");
+services.AddSqsClient();
+services.AddDynamoDbClient("myapp_");  // Table prefix
+```
+
+#### IInstanceMetadata
+
+Provides EC2 instance metadata with fallback defaults for local development:
+
+```csharp
+public class MyService(IInstanceMetadata metadata)
+{
+    public void DoWork()
+    {
+        if (metadata.IsRunningOnEc2)
+        {
+            Console.WriteLine($"Region: {metadata.Region}");
+            Console.WriteLine($"Instance: {metadata.InstanceId}");
+            Console.WriteLine($"AZ: {metadata.AvailabilityZone}");
+        }
+        else
+        {
+            Console.WriteLine("Running locally with defaults");
+        }
+    }
+}
+```
+
+The `InstanceMetaService` implements `IRequiresStart` and detects the EC2 environment at startup with a configurable timeout (default 1 second) to avoid hanging on local development machines.
 
 ---
 
@@ -894,12 +1008,19 @@ Version is tracked in `version.json`:
 
 ```
 app-common/
-├── PRD.md                        # This document
+├── PRD.md                        # This document (detailed documentation)
+├── README.md                     # Quick start guide
+├── CLAUDE.md                     # AI assistant guide for consuming projects
 ├── src/
+│   ├── Directory.Build.props     # Source-specific settings (Source Link)
 │   ├── AppCommon.Core/           # Base utilities
+│   │   └── README.md             # Package README (included in NuGet)
 │   ├── AppCommon.Aws/            # AWS integrations
+│   │   └── README.md
 │   ├── AppCommon.Persistence/    # Database patterns
+│   │   └── README.md
 │   └── AppCommon.Api/            # Web utilities
+│       └── README.md
 ├── build/
 │   └── Build.csproj              # Cake Frosting build
 ├── tests/
@@ -910,5 +1031,51 @@ app-common/
 ├── Directory.Build.props         # Common build settings
 ├── Directory.Packages.props      # Central Package Management
 ├── version.json                  # Version tracking
+├── global.json                   # SDK version pinning
 └── app-common.slnx               # Solution file
 ```
+
+## AI-Friendly Documentation
+
+This project is designed for optimal AI assistant understanding when consumed by other projects.
+
+### Documentation Layers
+
+| File | Purpose | Audience |
+|------|---------|----------|
+| `PRD.md` | Comprehensive documentation | Developers, AI assistants working on AppCommon |
+| `README.md` | Quick start guide | Developers evaluating the packages |
+| `CLAUDE.md` | AI assistant cheat sheet | AI assistants working on consuming projects |
+| `src/*/README.md` | Per-package quick reference | Shown in NuGet package managers |
+
+### Package Enhancements for AI
+
+1. **XML Documentation** - All public APIs have XML docs compiled into the DLL
+   - Visible in IntelliSense
+   - AI can read method signatures and descriptions
+
+2. **Source Link** - Debug symbols link to GitHub source
+   - AI and developers can navigate to actual source code
+   - Symbol packages (.snupkg) published alongside NuGet packages
+
+3. **Package READMEs** - Each package includes a README.md
+   - Displayed on nuget.org
+   - Shows quick start examples
+
+### For Consuming Projects
+
+To maximize AI understanding in projects using AppCommon:
+
+1. **Copy CLAUDE.md** to your project root (optionally rename to fit your conventions)
+2. **Reference the PRD** - AI can fetch https://github.com/kampilan/app-common/blob/main/PRD.md
+3. **Use XML docs** - IntelliSense hints are available in your IDE
+
+### Maintaining Documentation
+
+When adding new functionality to AppCommon:
+
+1. **Add XML documentation** to all public types and methods
+2. **Update PRD.md** with detailed documentation
+3. **Update package README.md** if it's a major feature
+4. **Update CLAUDE.md** if it changes common patterns or adds key types
+5. **Update this section** if documentation structure changes
