@@ -160,6 +160,134 @@ Common Guard methods:
 
 ## Component Documentation
 
+### Mediator
+
+`AppCommon.Core.Mediator` provides a lightweight mediator pattern implementation for decoupling request senders from handlers, with support for pipeline behaviors.
+
+#### Core Concepts
+
+| Interface | Purpose |
+|-----------|---------|
+| `IRequest<TResponse>` | Marker interface for requests |
+| `ICommand<TResponse>` | Semantic alias for commands (state-changing operations) |
+| `IQuery<TResponse>` | Semantic alias for queries (read operations) |
+| `IRequestHandler<TRequest, TResponse>` | Handles a specific request type |
+| `IPipelineBehavior<TRequest, TResponse>` | Cross-cutting concern that wraps handler execution |
+| `IMediator` | Routes requests through pipeline to handlers |
+
+#### Request Flow
+
+```
+Request → Mediator → [Behavior1 → Behavior2 → ... → Handler] → Response
+```
+
+Behaviors wrap the handler in a delegate chain, executing in registration order (outermost to innermost).
+
+#### Usage
+
+**1. Define a request and handler:**
+
+```csharp
+// Request
+public record CreateUserCommand(string Name, string Email) : ICommand<UserDto>;
+
+// Handler
+public class CreateUserHandler : ICommandHandler<CreateUserCommand, UserDto>
+{
+    public async Task<UserDto> HandleAsync(CreateUserCommand request, CancellationToken ct)
+    {
+        // Create user logic
+        return new UserDto { Id = newId, Name = request.Name };
+    }
+}
+```
+
+**2. Register services:**
+
+```csharp
+services.AddMediator(typeof(Program).Assembly);
+```
+
+This auto-discovers and registers all handlers in the specified assemblies.
+
+**3. Send requests:**
+
+```csharp
+public class UserController(IMediator mediator)
+{
+    public async Task<UserDto> CreateUser(CreateUserRequest request)
+    {
+        return await mediator.SendAsync(new CreateUserCommand(request.Name, request.Email));
+    }
+}
+```
+
+#### Built-in Pipeline Behaviors
+
+**LoggingBehavior** - Logs request start, completion, and errors with timing and correlation IDs:
+
+```csharp
+services.AddPipelineBehavior(typeof(LoggingBehavior<,>));
+```
+
+Features:
+- Logs at Information level for top-level requests
+- Logs at Debug level for child commands in batch context (reduces noise)
+- Includes duration, correlation ID, and user context
+
+**ValidationBehavior** - Runs FluentValidation validators before the handler:
+
+```csharp
+services.AddPipelineBehavior(typeof(ValidationBehavior<,>));
+```
+
+Throws `ValidationException` if any validators fail.
+
+#### Custom Behaviors
+
+Implement `IPipelineBehavior<TRequest, TResponse>`:
+
+```csharp
+public class CachingBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
+    where TRequest : IRequest<TResponse>
+{
+    public async Task<TResponse> HandleAsync(
+        TRequest request,
+        RequestHandlerDelegate<TResponse> next,
+        CancellationToken ct)
+    {
+        // Check cache
+        var cached = await _cache.GetAsync<TResponse>(request);
+        if (cached != null) return cached;
+
+        // Call next behavior or handler
+        var response = await next();
+
+        // Cache result
+        await _cache.SetAsync(request, response);
+        return response;
+    }
+}
+```
+
+#### Batch Execution Context
+
+For batch operations that execute multiple commands, use `BatchExecutionContext` to reduce log verbosity:
+
+```csharp
+using (BatchExecutionContext.BeginBatch("import-users"))
+{
+    foreach (var user in users)
+    {
+        await mediator.SendAsync(new CreateUserCommand(user.Name, user.Email));
+    }
+}
+```
+
+Child commands within the batch context are logged at Debug level instead of Information.
+
+---
+
 ### AppLifecycleService
 
 `AppCommon.Api.Lifecycle.AppLifecycleService` is a hosted service that enables communication between the application and an external orchestrator (e.g., Fabrica.One) using flag files as a simple IPC mechanism.
