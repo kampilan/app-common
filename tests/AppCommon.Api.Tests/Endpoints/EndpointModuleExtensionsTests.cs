@@ -87,7 +87,7 @@ public class EndpointModuleExtensionsTests
     }
 
     [Fact]
-    public void MapEndpointModules_DefaultPrefixIsApi()
+    public void MapEndpointModules_DefaultPrefixIsEmpty()
     {
         // Arrange
         var builder = WebApplication.CreateBuilder();
@@ -96,7 +96,7 @@ public class EndpointModuleExtensionsTests
         // Act - call without specifying prefix
         var result = app.MapEndpointModules(typeof(EndpointModuleExtensionsTests).Assembly);
 
-        // Assert - no exception, default /api prefix used
+        // Assert - no exception, default empty prefix used
         result.ShouldNotBeNull();
     }
 

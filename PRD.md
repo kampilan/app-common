@@ -552,10 +552,11 @@ public class UsersEndpoint : IEndpointModule
 ```csharp
 var app = builder.Build();
 
-// Maps all IEndpointModule implementations under /api prefix
+// Maps all IEndpointModule implementations
 app.MapEndpointModules(typeof(Program).Assembly);
 
-// Routes become: /api/users, /api/users/{id}, etc.
+// With optional prefix
+app.MapEndpointModules(typeof(Program).Assembly, prefix: "/api");
 ```
 
 **3. Multiple assemblies and custom prefix:**
@@ -571,7 +572,7 @@ app.MapEndpointModules(
 
 - **Feature-based organization** - Colocate endpoint definitions with their handlers
 - **Auto-discovery** - No manual registration required for each endpoint class
-- **Consistent routing** - All routes automatically prefixed (default: `/api`)
+- **Optional routing prefix** - Routes can be prefixed (e.g., `/api`) if desired
 - **Testable** - Endpoint modules can be unit tested in isolation
 
 #### How It Works

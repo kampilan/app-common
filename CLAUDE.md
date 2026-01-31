@@ -6,10 +6,128 @@ This file provides context for AI assistants (Claude, etc.) working with project
 
 | Package | Purpose |
 |---------|---------|
-| `AppCommon.Core` | Mediator, lifecycle, audit infrastructure, validation |
+| `AppCommon.Core` | Mediator, lifecycle, audit infrastructure, validation, `IRequestContext` interface |
 | `AppCommon.Aws` | AWS client DI registration, EC2 metadata |
-| `AppCommon.Persistence` | EF Core audit interceptor |
-| `AppCommon.Api` | Minimal API endpoints, gateway auth, exception handlers |
+| `AppCommon.Persistence` | EF Core audit interceptor (uses `IRequestContext`) |
+| `AppCommon.Api` | Minimal API endpoints, gateway auth, exception handlers, `IRequestContext` implementation |
+
+## Component Relationships
+
+Understanding how components connect across packages is critical for debugging and implementation.
+
+### Request Context - The Central Bridge
+
+`IRequestContext` is the unified way to access user identity and correlation information. It reads directly from `HttpContext.User` - no manual population required.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              REQUEST FLOW                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  HTTP Request                                                                │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ Any Auth Handler (JWT, Cookie, etc) │                                    │
+│  │ - Populates HttpContext.User        │                                    │
+│  └─────────────────────────────────────┘                                    │
+│                    │                                                         │
+│                    ▼                                                         │
+│  ┌─────────────────────────────────────┐                                    │
+│  │ IRequestContext (reads from User)   │  (AppCommon.Api implementation)    │
+│  │ - Subject (user ID from sub claim)  │                                    │
+│  │ - UserName, UserEmail, Roles        │                                    │
+│  │ - CorrelationUid (TraceId or Ulid)  │                                    │
+│  │ - IsAuthenticated                   │                                    │
+│  └─────────────────────────────────────┘                                    │
+│                    │                                                         │
+│       ┌────────────┴────────────┐                                           │
+│       ▼                         ▼                                            │
+│  ┌──────────────────┐    ┌─────────────────────────────────┐                │
+│  │ LoggingBehavior  │    │ AuditSaveChangesInterceptor     │                │
+│  │ - Logs Subject   │    │ - Records Subject + UserName    │                │
+│  │ - CorrelationUid │    │ - Uses CorrelationUid           │                │
+│  │  (AppCommon.Core)│    │         (AppCommon.Persistence) │                │
+│  └──────────────────┘    └─────────────────────────────────┘                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight:** `IRequestContext` reads from `HttpContext.User` automatically. Any authentication handler that populates `HttpContext.User` (JWT, cookies, gateway tokens, etc.) will automatically be reflected in `IRequestContext`.
+
+### Mediator Request Pipeline
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           MEDIATOR PIPELINE                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  IMediator.SendAsync(command)                                               │
+│       │                                                                      │
+│       ▼                                                                      │
+│  ┌─────────────────────────────────┐                                        │
+│  │ LoggingBehavior (if registered) │                                        │
+│  │ - Logs request start + Subject  │                                        │
+│  │ - Uses CorrelationUid           │                                        │
+│  └───────────────┬─────────────────┘                                        │
+│                  ▼                                                           │
+│  ┌─────────────────────────────────┐                                        │
+│  │ ValidationBehavior (if reg.)    │                                        │
+│  │ - Runs FluentValidation         │                                        │
+│  │ - Throws ValidationException    │                                        │
+│  └───────────────┬─────────────────┘                                        │
+│                  ▼                                                           │
+│  ┌─────────────────────────────────┐                                        │
+│  │ IRequestHandler<T>              │                                        │
+│  │ - Your business logic           │                                        │
+│  │ - May call DbContext.SaveChanges│───┐                                    │
+│  └───────────────┬─────────────────┘   │                                    │
+│                  │                      ▼                                    │
+│                  │    ┌─────────────────────────────────┐                   │
+│                  │    │ AuditSaveChangesInterceptor     │                   │
+│                  │    │ - Creates AuditJournal entries  │                   │
+│                  │    │ - Uses IRequestContext          │                   │
+│                  │    └─────────────────────────────────┘                   │
+│                  ▼                                                           │
+│  ┌─────────────────────────────────┐                                        │
+│  │ LoggingBehavior                 │                                        │
+│  │ - Logs completion + duration    │                                        │
+│  └─────────────────────────────────┘                                        │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Audit Entity Relationships
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         AUDIT ENTITY MODEL                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  [Audit]                                                                     │
+│  Customer : BaseEntity<Customer>, IRootEntity                               │
+│       │                                                                      │
+│       │ GetRoot() returns this                                              │
+│       │                                                                      │
+│       └──────┬───────────────┐                                              │
+│              │               │                                               │
+│              ▼               ▼                                               │
+│  [Audit]                 [Audit]                                            │
+│  Order : IAggregateChild  Address : IAggregateChild                         │
+│  GetRoot() → Customer     GetRoot() → Customer                              │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  When Order is modified but Customer is not:                                │
+│  - AuditJournal entry created for Order (TypeCode: Updated)                 │
+│  - AuditJournal entry created for Customer (TypeCode: UnmodifiedRoot)       │
+│  - Both share same CorrelationUid                                           │
+│                                                                              │
+│  This allows querying "all changes affecting Customer X" to include         │
+│  child entity changes even when the root wasn't directly modified.          │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Common Patterns
 
@@ -25,6 +143,28 @@ public class CreateUserHandler : ICommandHandler<CreateUserCommand, UserDto> { .
 
 // Send via IMediator
 var result = await mediator.SendAsync(new CreateUserCommand("John"));
+```
+
+### Request Context
+
+Access user identity and correlation info anywhere via DI:
+
+```csharp
+public class MyHandler(IRequestContext context)
+{
+    public void Handle()
+    {
+        // User info (from HttpContext.User claims)
+        var userId = context.Subject;          // From "sub" claim
+        var name = context.UserName;           // From "name" claim
+        var email = context.UserEmail;         // From "email" claim
+        var roles = context.Roles;             // From role claims
+        var isAuth = context.IsAuthenticated;
+
+        // Correlation (for distributed tracing)
+        var correlationId = context.CorrelationUid;  // TraceId or Ulid
+    }
+}
 ```
 
 ### Audit Logging
@@ -70,8 +210,11 @@ public class OrdersEndpoint : IEndpointModule
     }
 }
 
-// Auto-discover all modules
+// Auto-discover all modules (no prefix by default)
 app.MapEndpointModules(typeof(Program).Assembly);
+
+// Or with a prefix
+app.MapEndpointModules(typeof(Program).Assembly, prefix: "/api");
 ```
 
 ### Gateway Authentication
@@ -79,15 +222,21 @@ app.MapEndpointModules(typeof(Program).Assembly);
 For apps behind a gateway that forwards JWT tokens:
 
 ```csharp
+// 1. Register request context and authentication
+services.AddRequestContext();  // Provides IRequestContext
 services.AddGatewayTokenAuthentication(options =>
 {
-    options.HeaderName = "X-Gateway-Token";
+    options.HeaderName = "X-Gateway-Token";  // Default header name
 });
 
-// Access current user via ICurrentUserService
-public class MyHandler(ICurrentUserService user)
+// 2. Use authentication middleware
+app.UseAuthentication();
+app.UseAuthorization();
+
+// 3. IRequestContext automatically reflects the authenticated user
+public class MyHandler(IRequestContext context)
 {
-    public void Handle() => Console.WriteLine(user.UserId);
+    public void Handle() => Console.WriteLine(context.Subject);
 }
 ```
 
@@ -116,12 +265,15 @@ services.AddS3Client();
 services.AddSqsClient();
 services.AddDynamoDbClient("prefix_");
 
-// Persistence
+// API - Request Context (required for LoggingBehavior and AuditInterceptor)
+services.AddRequestContext();
+
+// Persistence (uses IRequestContext for audit entries)
 services.AddScoped<AuditSaveChangesInterceptor>();
 services.AddDbContext<AppDbContext>((sp, opt) =>
     opt.AddInterceptors(sp.GetRequiredService<AuditSaveChangesInterceptor>()));
 
-// API
+// API - Authentication (optional, populates HttpContext.User)
 services.AddGatewayTokenAuthentication();
 services.AddExceptionHandler<ValidationExceptionHandler>();
 services.AddExceptionHandler<GlobalExceptionHandler>();
@@ -142,16 +294,46 @@ Use `entries.ToHierarchy()` to build the hierarchy for display.
 
 ## Key Interfaces
 
-| Interface | Purpose |
-|-----------|---------|
-| `IMediator` | Send commands/queries |
-| `ICurrentUserService` | Access authenticated user |
-| `IInstanceMetadata` | EC2 metadata (or defaults) |
-| `IRequiresStart` | Service needing initialization |
-| `IEndpointModule` | Minimal API endpoint group |
-| `IEntity` | Base for auditable entities |
-| `IRootEntity` | Aggregate root marker |
-| `IAggregateChild` | Entity belonging to aggregate |
+| Interface | Purpose | Package |
+|-----------|---------|---------|
+| `IMediator` | Send commands/queries through pipeline | Core |
+| `IRequestContext` | Access user identity and correlation (reads from HttpContext.User) | Core (interface), Api (implementation) |
+| `IInstanceMetadata` | EC2 metadata (or defaults) | Aws |
+| `IRequiresStart` | Service needing initialization at startup | Core |
+| `IEndpointModule` | Minimal API endpoint group | Api |
+| `IEntity` | Base for auditable entities | Core |
+| `IRootEntity` | Aggregate root marker | Core |
+| `IAggregateChild` | Entity belonging to aggregate, links to root | Core |
+| `IGatewayTokenEncoder` | Decodes JWT tokens for gateway auth | Api |
+
+## Troubleshooting
+
+### User info missing in audit logs or LoggingBehavior
+1. Ensure `services.AddRequestContext()` is called
+2. Ensure `app.UseAuthentication()` is called before endpoints
+3. Check that your auth handler populates `HttpContext.User`
+4. `IRequestContext` reads directly from `HttpContext.User` - no manual setup needed
+
+### Subject is null but user should be authenticated
+1. `IRequestContext.Subject` reads from `ClaimTypes.NameIdentifier` (the "sub" claim)
+2. Verify your JWT/auth token includes the "sub" claim
+3. Check `HttpContext.User.Identity.IsAuthenticated` to confirm auth succeeded
+
+### Endpoints not found (404)
+1. Verify `MapEndpointModules()` is called with the correct assembly
+2. Check if you're expecting a prefix - default is no prefix
+3. Use `app.MapEndpointModules(assembly, prefix: "/api")` if you need `/api` prefix
+
+### Audit entries not created
+1. Entity must have `[Audit]` attribute
+2. Entity must implement `IEntity` (use `BaseEntity<T>`)
+3. `AuditSaveChangesInterceptor` must be registered and added to DbContext
+4. `services.AddRequestContext()` must be called
+
+### CorrelationUid in logs doesn't match audit entries
+1. Both `LoggingBehavior` and `AuditSaveChangesInterceptor` use `IRequestContext.CorrelationUid`
+2. This value comes from `Activity.Current.TraceId` (if available) or a generated ULID
+3. All should be consistent within a single HTTP request
 
 ## Source Code
 

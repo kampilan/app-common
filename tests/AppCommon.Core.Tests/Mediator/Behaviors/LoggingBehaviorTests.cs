@@ -1,4 +1,4 @@
-using AppCommon.Core.Identity;
+using AppCommon.Core.Context;
 using AppCommon.Core.Mediator;
 using AppCommon.Core.Mediator.Behaviors;
 using Microsoft.Extensions.Logging;
@@ -11,15 +11,16 @@ namespace AppCommon.Core.Tests.Mediator.Behaviors;
 public class LoggingBehaviorTests
 {
     private readonly ILogger<LoggingBehavior<TestLoggingRequest, TestLoggingResponse>> _logger;
-    private readonly ICurrentUserService _currentUserService;
+    private readonly IRequestContext _requestContext;
     private readonly LoggingBehavior<TestLoggingRequest, TestLoggingResponse> _behavior;
 
     public LoggingBehaviorTests()
     {
         _logger = Substitute.For<ILogger<LoggingBehavior<TestLoggingRequest, TestLoggingResponse>>>();
-        _currentUserService = Substitute.For<ICurrentUserService>();
-        _currentUserService.UserId.Returns("test-user-123");
-        _behavior = new LoggingBehavior<TestLoggingRequest, TestLoggingResponse>(_logger, _currentUserService);
+        _requestContext = Substitute.For<IRequestContext>();
+        _requestContext.Subject.Returns("test-user-123");
+        _requestContext.CorrelationUid.Returns("test-correlation-uid");
+        _behavior = new LoggingBehavior<TestLoggingRequest, TestLoggingResponse>(_logger, _requestContext);
     }
 
     [Fact]
@@ -101,10 +102,10 @@ public class LoggingBehaviorTests
     }
 
     [Fact]
-    public async Task HandleAsync_WhenUserIdIsNull_LogsAnonymous()
+    public async Task HandleAsync_WhenSubjectIsNull_LogsAnonymous()
     {
         // Arrange
-        _currentUserService.UserId.Returns((string?)null);
+        _requestContext.Subject.Returns((string?)null);
         var request = new TestLoggingRequest { Data = "test" };
         Task<TestLoggingResponse> Next() => Task.FromResult(new TestLoggingResponse { Result = "ok" });
 

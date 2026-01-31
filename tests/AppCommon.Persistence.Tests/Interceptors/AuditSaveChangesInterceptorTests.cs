@@ -1,4 +1,4 @@
-using AppCommon.Core.Identity;
+using AppCommon.Core.Context;
 using AppCommon.Core.Persistence;
 using AppCommon.Persistence.Interceptors;
 using Microsoft.EntityFrameworkCore;
@@ -10,17 +10,18 @@ namespace AppCommon.Persistence.Tests.Interceptors;
 
 public class AuditSaveChangesInterceptorTests : IDisposable
 {
-    private readonly ICurrentUserService _currentUserService;
+    private readonly IRequestContext _requestContext;
     private readonly AuditSaveChangesInterceptor _interceptor;
     private readonly TestDbContext _context;
 
     public AuditSaveChangesInterceptorTests()
     {
-        _currentUserService = Substitute.For<ICurrentUserService>();
-        _currentUserService.UserId.Returns("user-123");
-        _currentUserService.UserName.Returns("Test User");
+        _requestContext = Substitute.For<IRequestContext>();
+        _requestContext.Subject.Returns("user-123");
+        _requestContext.UserName.Returns("Test User");
+        _requestContext.CorrelationUid.Returns("test-correlation-uid");
 
-        _interceptor = new AuditSaveChangesInterceptor(_currentUserService);
+        _interceptor = new AuditSaveChangesInterceptor(_requestContext);
 
         var options = new DbContextOptionsBuilder<TestDbContext>()
             .UseInMemoryDatabase(databaseName: Guid.NewGuid().ToString())
@@ -168,6 +169,7 @@ public class AuditSaveChangesInterceptorTests : IDisposable
         // All entries from same save should have same correlation
         var correlationUids = auditEntries.Select(e => e.CorrelationUid).Distinct().ToList();
         correlationUids.Count.ShouldBe(1);
+        correlationUids[0].ShouldBe("test-correlation-uid");
     }
 
     [Fact]
@@ -191,8 +193,8 @@ public class AuditSaveChangesInterceptorTests : IDisposable
     public async Task SavingChangesAsync_WhenUserNotAuthenticated_UsesAnonymous()
     {
         // Arrange
-        _currentUserService.UserId.Returns((string?)null);
-        _currentUserService.UserName.Returns((string?)null);
+        _requestContext.Subject.Returns((string?)null);
+        _requestContext.UserName.Returns((string?)null);
 
         var entity = new TestAuditedEntity { Name = "Test" };
         _context.TestEntities.Add(entity);

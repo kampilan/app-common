@@ -1,5 +1,5 @@
 using System.Reflection;
-using AppCommon.Core.Identity;
+using AppCommon.Core.Context;
 using AppCommon.Core.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -10,13 +10,52 @@ namespace AppCommon.Persistence.Interceptors;
 /// <summary>
 /// EF Core interceptor that captures entity changes and creates audit journal entries.
 /// </summary>
+/// <remarks>
+/// <para>
+/// <b>How it works:</b> Intercepts <c>SaveChanges</c>/<c>SaveChangesAsync</c> and scans the
+/// ChangeTracker for entities marked with <see cref="AuditAttribute"/>. Creates
+/// <see cref="AuditJournal"/> entries recording what changed, when, and by whom.
+/// </para>
+/// <para>
+/// <b>User context:</b> This interceptor reads from <see cref="IRequestContext"/> to
+/// determine who made the changes:
+/// <list type="bullet">
+/// <item><description><see cref="AuditJournal.Subject"/> = <see cref="IRequestContext.Subject"/> (or "anonymous")</description></item>
+/// <item><description><see cref="AuditJournal.UserName"/> = <see cref="IRequestContext.UserName"/> (or "Anonymous")</description></item>
+/// <item><description><see cref="AuditJournal.CorrelationUid"/> = <see cref="IRequestContext.CorrelationUid"/></description></item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Integration:</b> User info is automatically available when any ASP.NET Core authentication
+/// handler populates <c>HttpContext.User</c>. No manual setup required beyond calling
+/// <c>app.UseAuthentication()</c> before endpoints.
+/// </para>
+/// <para>
+/// <b>Registration:</b>
+/// <code>
+/// services.AddRequestContext();  // Required - from AppCommon.Api
+/// services.AddScoped&lt;AuditSaveChangesInterceptor&gt;();
+/// services.AddDbContext&lt;MyDbContext&gt;((sp, opt) =&gt;
+///     opt.AddInterceptors(sp.GetRequiredService&lt;AuditSaveChangesInterceptor&gt;()));
+/// </code>
+/// </para>
+/// </remarks>
+/// <seealso cref="IRequestContext"/>
+/// <seealso cref="AuditJournal"/>
+/// <seealso cref="AuditAttribute"/>
 public class AuditSaveChangesInterceptor : SaveChangesInterceptor
 {
-    private readonly ICurrentUserService _currentUserService;
+    private readonly IRequestContext _requestContext;
 
-    public AuditSaveChangesInterceptor(ICurrentUserService currentUserService)
+    /// <summary>
+    /// Initializes a new instance of the interceptor.
+    /// </summary>
+    /// <param name="requestContext">
+    /// The request context providing user identity and correlation information.
+    /// </param>
+    public AuditSaveChangesInterceptor(IRequestContext requestContext)
     {
-        _currentUserService = currentUserService;
+        _requestContext = requestContext;
     }
 
     public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
@@ -57,10 +96,10 @@ public class AuditSaveChangesInterceptor : SaveChangesInterceptor
     private List<AuditJournal> CreateAuditEntries(DbContext context)
     {
         var journals = new List<AuditJournal>();
-        var correlationUid = System.Diagnostics.Activity.Current?.TraceId.ToString() ?? Ulid.NewUlid().ToString();
+        var correlationUid = _requestContext.CorrelationUid;
         var occurredAt = DateTime.UtcNow;
-        var subject = _currentUserService.UserId ?? "anonymous";
-        var userName = _currentUserService.UserName ?? "Anonymous";
+        var subject = _requestContext.Subject ?? "anonymous";
+        var userName = _requestContext.UserName ?? "Anonymous";
 
         // Track which root entities were directly modified
         var modifiedRootUids = new HashSet<string>();

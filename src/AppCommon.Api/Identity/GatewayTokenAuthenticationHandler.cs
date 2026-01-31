@@ -1,5 +1,4 @@
 using System.Text.Encodings.Web;
-using AppCommon.Core.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -7,21 +6,51 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AppCommon.Api.Identity;
 
+/// <summary>
+/// ASP.NET Core authentication handler that processes JWT tokens forwarded by a gateway/proxy.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Request flow:</b>
+/// <list type="number">
+/// <item><description>Reads JWT from configured header (default: X-Gateway-Token)</description></item>
+/// <item><description>Falls back to <see cref="GatewayTokenOptions.DevelopmentToken"/> if no header and configured</description></item>
+/// <item><description>Decodes token via <see cref="IGatewayTokenEncoder"/></description></item>
+/// <item><description>Creates <see cref="System.Security.Claims.ClaimsPrincipal"/> and assigns to <c>HttpContext.User</c></description></item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Integration with IRequestContext:</b> Once this handler populates <c>HttpContext.User</c>,
+/// <see cref="Core.Context.IRequestContext"/> automatically reflects the authenticated user's claims.
+/// Downstream components like <c>LoggingBehavior</c> and <c>AuditSaveChangesInterceptor</c> read from
+/// <c>IRequestContext</c> to get user context - no manual wiring required.
+/// </para>
+/// <para>
+/// <b>Troubleshooting:</b> If <see cref="Core.Context.IRequestContext.Subject"/> is null:
+/// <list type="bullet">
+/// <item><description>Ensure <c>app.UseAuthentication()</c> is called before endpoint handlers</description></item>
+/// <item><description>Check the JWT token is present in the request header</description></item>
+/// <item><description>Verify the header name matches <see cref="GatewayTokenOptions.HeaderName"/></description></item>
+/// </list>
+/// </para>
+/// </remarks>
+/// <seealso cref="Core.Context.IRequestContext"/>
+/// <seealso cref="GatewayAuthenticationExtensions"/>
 public class GatewayTokenAuthenticationHandler : AuthenticationHandler<GatewayTokenOptions>
 {
     private readonly IGatewayTokenEncoder _tokenEncoder;
-    private readonly ICurrentUserService _currentUserService;
 
+    /// <summary>
+    /// Initializes a new instance of the authentication handler.
+    /// </summary>
     public GatewayTokenAuthenticationHandler(
         IGatewayTokenEncoder tokenEncoder,
-        ICurrentUserService currentUserService,
         IOptionsMonitor<GatewayTokenOptions> options,
         ILoggerFactory logger,
         UrlEncoder encoder)
         : base(options, logger, encoder)
     {
         _tokenEncoder = tokenEncoder;
-        _currentUserService = currentUserService;
     }
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
@@ -52,14 +81,8 @@ public class GatewayTokenAuthenticationHandler : AuthenticationHandler<GatewayTo
         {
             var claims = await _tokenEncoder.DecodeAsync(token);
 
-            // Populate ICurrentUserService
-            _currentUserService.SetUser(
-                claims.Subject,
-                claims.Name,
-                claims.Email,
-                claims.Roles);
-
-            // Build ClaimsPrincipal
+            // Build ClaimsPrincipal - this populates HttpContext.User
+            // IRequestContext reads from HttpContext.User automatically
             var identity = new GatewayIdentity(claims, Scheme.Name);
             var principal = new System.Security.Claims.ClaimsPrincipal(identity);
             var ticket = new AuthenticationTicket(principal, Scheme.Name);
